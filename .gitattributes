@@ -1,0 +1,5 @@
+/dev-docs/ export-ignore
+
+*.sh text eol=lf
+.husky/pre-commit text eol=lf
+.husky/pre-push text eol=lf

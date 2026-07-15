@@ -1,0 +1,45 @@
+{
+  "productName": "Notely",
+  "mainBinaryName": "Notely",
+  "identifier": "com.notely.app",
+  "app": {
+    "windows": [
+      {
+        "title": "Notely",
+        "width": 900,
+        "height": 640,
+        "minWidth": 720,
+        "minHeight": 520,
+        "center": true,
+        "visible": false,
+        "decorations": false,
+        "dragDropEnabled": false
+      }
+    ]
+  },
+  "bundle": {
+    "publisher": "Notely",
+    "copyright": "",
+    "shortDescription": "Notely",
+    "longDescription": "Notely, une application simple de prise de notes.",
+    "icon": [
+      "icons/decoy/32x32.png",
+      "icons/decoy/128x128.png",
+      "icons/decoy/128x128@2x.png",
+      "icons/decoy/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/decoy/icon.ico",
+        "uninstallerIcon": "icons/decoy/icon.ico",
+        "headerImage": "installer/decoy-header.bmp",
+        "sidebarImage": "installer/decoy-sidebar.bmp"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://rovrix.tech/gestio/latest-notely.json"]
+    }
+  }
+}

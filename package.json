@@ -1,0 +1,33 @@
+{
+  "name": "gestio",
+  "version": "0.58.3",
+  "private": true,
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "lint:js": "eslint src/",
+    "lint:css": "stylelint \"src/**/*.css\"",
+    "lint": "npm run lint:js && npm run lint:css",
+    "format": "prettier --write \"src/**/*.{js,css,html}\"",
+    "format:check": "prettier --check \"src/**/*.{js,css,html}\"",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "src/**/*.js": ["prettier --write", "eslint --fix"],
+    "src/**/*.css": ["prettier --write", "stylelint --fix"]
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "eslint": "^8.57.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.8.1",
+    "stylelint": "^16.0.0"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "rules": {
+    "no-duplicate-selectors": true,
+    "no-empty-source": true,
+    "block-no-empty": true,
+    "color-no-invalid-hex": true,
+    "unit-no-unknown": [true, { "ignoreUnits": ["var"] }],
+    "property-no-unknown": true,
+    "declaration-no-important": true,
+    "selector-pseudo-class-no-unknown": true,
+    "selector-pseudo-element-no-unknown": true,
+    "no-descending-specificity": null,
+    "custom-property-pattern": null,
+    "selector-class-pattern": null
+  },
+  "ignoreFiles": ["dist/**", "node_modules/**"]
+}

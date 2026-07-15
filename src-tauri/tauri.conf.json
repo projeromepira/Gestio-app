@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Gestio",
+  "version": "0.58.3",
+  "identifier": "com.rovrix.gestio",
+  "build": {
+    "frontendDist": "../src"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Gestio",
+        "width": 900,
+        "height": 640,
+        "minWidth": 720,
+        "minHeight": 520,
+        "center": true,
+        "visible": false,
+        "decorations": false,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://rovrix.tech/gestio/latest.json"],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZBRTc3RDJGMTEyRTA5ODMKUldTRENTNFJMMzNuK29xNHZGenJNa0E4S3FsLzU5VzNib3ZTYWYvVE9ocVJ6S3BrVlhQS0pLL1kK"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": ["nsis", "msi"],
+    "publisher": "Rovrix",
+    "copyright": "© 2026 Rovrix",
+    "category": "Utility",
+    "shortDescription": "Gestionnaire de mots de passe local et chiffré",
+    "longDescription": "Gestio est un gestionnaire de mots de passe local, chiffré et gratuit. Le coffre est chiffré sur votre machine, avec un authenticator 2FA séparé et la vérification de fuites. Vos mots de passe ne quittent jamais votre ordinateur.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "headerImage": "installer/header.bmp",
+        "sidebarImage": "installer/sidebar.bmp",
+        "installMode": "currentUser",
+        "languages": ["French", "English", "Spanish", "German", "Italian", "Portuguese"],
+        "displayLanguageSelector": true
+      }
+    }
+  }
+}

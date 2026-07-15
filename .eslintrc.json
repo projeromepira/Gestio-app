@@ -1,0 +1,25 @@
+{
+  "env": {
+    "browser": true,
+    "es2020": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2020,
+    "sourceType": "module"
+  },
+  "rules": {
+    "no-var": "error",
+    "no-console": ["error", { "allow": ["warn", "error"] }],
+    "no-eval": "error",
+    "no-new-func": "error",
+    "no-alert": "error",
+    "no-undef": "warn",
+    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_" }],
+    "prefer-const": "warn",
+    "eqeqeq": ["warn", "always"],
+    "no-duplicate-case": "error",
+    "no-unreachable": "error",
+    "no-empty": "warn"
+  },
+  "ignorePatterns": ["dist/", "node_modules/", "vendor/"]
+}
