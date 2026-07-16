@@ -641,6 +641,119 @@ export const I18N = {
     it: 'Posizione della cassaforte',
     pt: 'Local do cofre'
   },
+  'settings.sync': {
+    fr: 'Synchronisation',
+    en: 'Synchronization',
+    es: 'Sincronización',
+    de: 'Synchronisierung',
+    it: 'Sincronizzazione',
+    pt: 'Sincronização'
+  },
+  'sync.enable': { fr: 'Activer', en: 'Enable', es: 'Activar', de: 'Aktivieren', it: 'Attiva', pt: 'Ativar' },
+  'sync.change': {
+    fr: 'Changer de dossier',
+    en: 'Change folder',
+    es: 'Cambiar carpeta',
+    de: 'Ordner ändern',
+    it: 'Cambia cartella',
+    pt: 'Mudar pasta'
+  },
+  'sync.disable': {
+    fr: 'Désactiver',
+    en: 'Disable',
+    es: 'Desactivar',
+    de: 'Deaktivieren',
+    it: 'Disattiva',
+    pt: 'Desativar'
+  },
+  'sync.folder': {
+    fr: 'Dossier partagé',
+    en: 'Shared folder',
+    es: 'Carpeta compartida',
+    de: 'Gemeinsamer Ordner',
+    it: 'Cartella condivisa',
+    pt: 'Pasta partilhada'
+  },
+  'sync.now': {
+    fr: 'Synchroniser',
+    en: 'Sync now',
+    es: 'Sincronizar',
+    de: 'Synchronisieren',
+    it: 'Sincronizza',
+    pt: 'Sincronizar'
+  },
+  'sync.syncing': {
+    fr: 'Synchronisation...',
+    en: 'Syncing...',
+    es: 'Sincronizando...',
+    de: 'Synchronisiere...',
+    it: 'Sincronizzazione...',
+    pt: 'A sincronizar...'
+  },
+  'sync.off': {
+    fr: 'Désactivée',
+    en: 'Off',
+    es: 'Desactivada',
+    de: 'Aus',
+    it: 'Disattivata',
+    pt: 'Desativada'
+  },
+  'sync.onDevice': {
+    fr: 'Activée · appareil {id}',
+    en: 'On · device {id}',
+    es: 'Activada · dispositivo {id}',
+    de: 'An · Gerät {id}',
+    it: 'Attiva · dispositivo {id}',
+    pt: 'Ativada · dispositivo {id}'
+  },
+  'join.button': {
+    fr: 'Rejoindre un appareil',
+    en: 'Join a device',
+    es: 'Unirse a un dispositivo',
+    de: 'Gerät beitreten',
+    it: 'Unisciti a un dispositivo',
+    pt: 'Juntar-se a um dispositivo'
+  },
+  'join.joining': {
+    fr: 'Connexion...',
+    en: 'Joining...',
+    es: 'Uniéndose...',
+    de: 'Verbinde...',
+    it: 'Connessione...',
+    pt: 'A juntar...'
+  },
+  'join.needPw': {
+    fr: 'Entrez le mot de passe maître du coffre existant.',
+    en: 'Enter the master password of the existing vault.',
+    es: 'Introduzca la contraseña maestra de la caja existente.',
+    de: 'Geben Sie das Master-Passwort des vorhandenen Tresors ein.',
+    it: 'Inserisci la password principale della cassaforte esistente.',
+    pt: 'Introduza a senha mestra do cofre existente.'
+  },
+  'e.joinExists': {
+    fr: 'Un coffre existe déjà sur cet appareil. Sauvegardez-le puis réinstallez pour rejoindre.',
+    en: 'A vault already exists on this device. Back it up then reinstall to join.',
+    es: 'Ya existe una caja en este dispositivo. Haga una copia y reinstale para unirse.',
+    de: 'Auf diesem Gerät existiert bereits ein Tresor. Sichern Sie ihn und installieren Sie neu, um beizutreten.',
+    it: 'Su questo dispositivo esiste già una cassaforte. Fanne un backup e reinstalla per unirti.',
+    pt: 'Já existe um cofre neste dispositivo. Faça uma cópia e reinstale para se juntar.'
+  },
+  'e.joinNoSeed': {
+    fr: 'Aucun appareil à rejoindre dans ce dossier. Activez la synchronisation sur le premier appareil.',
+    en: 'No device to join in this folder. Enable sync on the first device.',
+    es: 'Ningún dispositivo al que unirse en esta carpeta. Active la sincronización en el primer dispositivo.',
+    de: 'Kein Gerät zum Beitreten in diesem Ordner. Aktivieren Sie die Synchronisierung auf dem ersten Gerät.',
+    it: 'Nessun dispositivo da raggiungere in questa cartella. Attiva la sincronizzazione sul primo dispositivo.',
+    pt: 'Nenhum dispositivo para se juntar nesta pasta. Ative a sincronização no primeiro dispositivo.'
+  },
+  'e.syncForeign': {
+    fr: 'Ce dossier appartient déjà à un autre coffre. Sur un nouvel appareil, utilisez « Rejoindre un appareil » ; sinon choisissez un dossier vide.',
+    en: 'This folder already belongs to another vault. On a new device use "Join a device"; otherwise pick an empty folder.',
+    es: 'Esta carpeta ya pertenece a otra caja. En un dispositivo nuevo use «Unirse a un dispositivo»; si no, elija una carpeta vacía.',
+    de: 'Dieser Ordner gehört bereits zu einem anderen Tresor. Verwenden Sie auf einem neuen Gerät „Gerät beitreten"; sonst wählen Sie einen leeren Ordner.',
+    it: 'Questa cartella appartiene già a una cassaforte diversa. Su un nuovo dispositivo usa "Unisciti a un dispositivo"; altrimenti scegli una cartella vuota.',
+    pt: 'Esta pasta já pertence a outro cofre. Num novo dispositivo use "Juntar-se a um dispositivo"; caso contrário escolha uma pasta vazia.'
+  },
 
   'theme.light': { fr: 'Clair', en: 'Light', es: 'Claro', de: 'Hell', it: 'Chiaro', pt: 'Claro' },
   'theme.dark': { fr: 'Sombre', en: 'Dark', es: 'Oscuro', de: 'Dunkel', it: 'Scuro', pt: 'Escuro' },

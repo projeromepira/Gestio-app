@@ -1,6 +1,6 @@
 [package]
 name = "gestio"
-version = "0.58.3"
+version = "0.58.11"
 description = "Gestionnaire de mots de passe local"
 authors = ["Jerome Pira"]
 edition = "2021"

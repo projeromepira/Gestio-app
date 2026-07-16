@@ -1441,7 +1441,7 @@ dependencies = [
 
 [[package]]
 name = "gestio"
-version = "0.58.3"
+version = "0.58.11"
 dependencies = [
  "argon2",
  "base64 0.22.1",

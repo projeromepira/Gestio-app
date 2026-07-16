@@ -259,6 +259,135 @@ fn change_vault_location(app: AppHandle) -> Result<String, String> {
     Ok(new_path.to_string_lossy().into_owned())
 }
 
+fn config_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|_| "e.internal".to_string())?;
+    Ok(dir.join("config.json"))
+}
+
+fn refresh_sync_seed(app: &AppHandle, vpath: &std::path::Path) {
+    let Ok(cf) = config_path(app) else {
+        return;
+    };
+    if let Some(dir) = config::sync_dir(&cf) {
+        let _ = vault::refresh_seed(std::path::Path::new(&dir), vpath);
+    }
+}
+
+fn sync_device(cf: &std::path::Path) -> String {
+    config::device_id_or(cf, &vault::generate_device_id())
+}
+
+fn run_sync(
+    app: &AppHandle,
+    state: &VaultState,
+    cf: &std::path::Path,
+    dir: &std::path::Path,
+) -> Result<(), String> {
+    let path = vault_path(app)?;
+    state.sync_dir(&path, dir, &sync_device(cf)).map_err(user_message)
+}
+
+#[derive(serde::Serialize)]
+struct SyncStatus {
+    enabled: bool,
+    dir: String,
+    device: String,
+}
+
+#[tauri::command(async)]
+fn sync_status(app: AppHandle) -> Result<SyncStatus, String> {
+    let cf = config_path(&app)?;
+    let device = sync_device(&cf);
+    let dir = config::sync_dir(&cf);
+    Ok(SyncStatus {
+        enabled: dir.is_some(),
+        dir: dir.unwrap_or_default(),
+        device,
+    })
+}
+
+#[tauri::command(async)]
+fn sync_enable(app: AppHandle, state: State<VaultState>) -> Result<String, String> {
+    let cf = config_path(&app)?;
+    let picked = app.dialog().file().blocking_pick_folder();
+    let Some(picked) = picked else {
+        return Ok(config::sync_dir(&cf).unwrap_or_default());
+    };
+    let dir = picked.into_path().map_err(|_| "e.internal".to_string())?;
+    if state.is_unlocked() && state.folder_belongs_to_other(&dir).map_err(user_message)? {
+        return Err("e.syncForeign".to_string());
+    }
+    config::set_sync_dir(&cf, Some(&dir)).map_err(|_| "e.internal".to_string())?;
+    if state.is_unlocked() {
+        run_sync(&app, &state, &cf, &dir)?;
+    }
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+#[tauri::command(async)]
+fn sync_disable(app: AppHandle) -> Result<(), String> {
+    let cf = config_path(&app)?;
+    config::set_sync_dir(&cf, None).map_err(|_| "e.internal".to_string())
+}
+
+#[tauri::command(async)]
+fn sync_now(app: AppHandle, state: State<VaultState>) -> Result<bool, String> {
+    if !state.is_unlocked() {
+        return Ok(false);
+    }
+    let cf = config_path(&app)?;
+    let Some(dir) = config::sync_dir(&cf) else {
+        return Ok(false);
+    };
+    run_sync(&app, &state, &cf, &PathBuf::from(dir))?;
+    Ok(true)
+}
+
+#[tauri::command(async)]
+fn sync_join(
+    app: AppHandle,
+    state: State<VaultState>,
+    master_password: String,
+) -> Result<bool, String> {
+    let vpath = vault_path(&app)?;
+    if vpath.exists() {
+        return Err("e.joinExists".to_string());
+    }
+    let picked = app.dialog().file().blocking_pick_folder();
+    let Some(picked) = picked else {
+        return Ok(false);
+    };
+    let dir = picked.into_path().map_err(|_| "e.internal".to_string())?;
+    let seed = dir.join(vault::SEED_NAME);
+    if !seed.exists() {
+        return Err("e.joinNoSeed".to_string());
+    }
+    let bytes = std::fs::read(&seed).map_err(|_| "e.internal".to_string())?;
+    if !vault::is_valid_backup(&bytes) {
+        return Err("e.badBackup".to_string());
+    }
+    if let Some(parent) = vpath.parent() {
+        std::fs::create_dir_all(parent).map_err(|_| "e.internal".to_string())?;
+    }
+    let tmp = vpath.with_extension("jointmp");
+    std::fs::write(&tmp, &bytes).map_err(|_| "e.internal".to_string())?;
+    if std::fs::rename(&tmp, &vpath).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err("e.internal".to_string());
+    }
+    if let Err(e) = state.unlock(&vpath, master_password.as_bytes()) {
+        let _ = std::fs::remove_file(&vpath);
+        return Err(user_message(e));
+    }
+    let cf = config_path(&app)?;
+    config::set_sync_dir(&cf, Some(&dir)).map_err(|_| "e.internal".to_string())?;
+    run_sync(&app, &state, &cf, &dir)?;
+    Ok(true)
+}
+
 #[tauri::command(async)]
 fn export_vault(app: AppHandle) -> Result<bool, String> {
     let current = vault_path(&app)?;
@@ -480,6 +609,9 @@ fn reset_master_password(
     let path = vault_path(&app)?;
     let res = state.reset_master_password(&path, new.as_bytes()).map_err(user_message);
     new.zeroize();
+    if res.is_ok() {
+        refresh_sync_seed(&app, &path);
+    }
     res
 }
 
@@ -529,6 +661,9 @@ fn change_master_password(
         .map_err(user_message);
     current.zeroize();
     new.zeroize();
+    if res.is_ok() {
+        refresh_sync_seed(&app, &path);
+    }
     res
 }
 
@@ -1078,6 +1213,11 @@ pub fn run() {
             vault_exists,
             vault_location,
             change_vault_location,
+            sync_status,
+            sync_enable,
+            sync_disable,
+            sync_now,
+            sync_join,
             export_vault,
             restore_vault,
             import_csv,

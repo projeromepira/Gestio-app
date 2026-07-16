@@ -1,7 +1,42 @@
 import { I18N } from './i18n.js';
 
-const { invoke } = window.__TAURI__.core;
+const { invoke: rawInvoke } = window.__TAURI__.core;
 const { getCurrentWindow } = window.__TAURI__.window;
+
+const SYNC_MUTATIONS = new Set([
+  'add_entry',
+  'update_entry',
+  'delete_entry',
+  'toggle_favorite',
+  'set_password',
+  'regenerate_password',
+  'create_group',
+  'rename_group',
+  'delete_group',
+  'reorder_entries',
+  'reorder_groups',
+  'toggle_group_favorite',
+  'import_csv'
+]);
+let pushTimer = null;
+
+async function invoke(cmd, args) {
+  const result = await rawInvoke(cmd, args);
+  if (SYNC_MUTATIONS.has(cmd)) {
+    schedulePush();
+  }
+  return result;
+}
+
+function schedulePush() {
+  if (pushTimer !== null) {
+    clearTimeout(pushTimer);
+  }
+  pushTimer = setTimeout(() => {
+    pushTimer = null;
+    autoSync();
+  }, 1500);
+}
 
 const ICON_DOTS =
   '<svg viewBox="0 0 20 20"><circle cx="10" cy="4" r="1.7"></circle><circle cx="10" cy="10" r="1.7"></circle><circle cx="10" cy="16" r="1.7"></circle></svg>';
@@ -1161,6 +1196,29 @@ async function createVault() {
   });
 }
 
+async function joinDevice() {
+  const errEl = document.querySelector('#create-err');
+  const pwEl = document.querySelector('#create-pw');
+  errEl.textContent = '';
+  if (!pwEl.value) {
+    errEl.textContent = t('join.needPw');
+    return;
+  }
+  await withButton(document.querySelector('#join-btn'), t('join.joining'), async () => {
+    try {
+      const ok = await invoke('sync_join', { masterPassword: pwEl.value });
+      if (ok) {
+        pwEl.value = '';
+        document.querySelector('#create-pw2').value = '';
+        await renderVault();
+        show('vault');
+      }
+    } catch (e) {
+      errEl.textContent = errText(e);
+    }
+  });
+}
+
 function formatRecovery(code) {
   return code;
 }
@@ -1204,6 +1262,7 @@ async function unlockVault() {
     try {
       await invoke('unlock_vault', { masterPassword: pwEl.value });
       pwEl.value = '';
+      await autoSync();
       await renderVault();
       show('vault');
       checkRecoveryRotation('vault');
@@ -1279,6 +1338,7 @@ async function lockVault() {
   detailRevealed = false;
   detailPassword = null;
   setPwnedIndicator('none');
+  await autoSync();
   await invoke('lock_vault');
   await refreshLevel();
   await refreshForgotLink();
@@ -2496,6 +2556,7 @@ async function openSettings() {
     } catch (e) {
       pathEl.textContent = errText(e);
     }
+    await refreshSyncSetting();
   }
   if (totpUnlocked) {
     await updateRecoverySetting('totp');
@@ -2847,6 +2908,101 @@ async function changeVaultLocation() {
   }
 }
 
+async function refreshSyncSetting() {
+  const stateEl = document.querySelector('#sync-state');
+  const pathEl = document.querySelector('#sync-path');
+  const actions = document.querySelector('#sync-actions-row');
+  const enableBtn = document.querySelector('#sync-enable-btn');
+  try {
+    const s = await invoke('sync_status');
+    if (s.enabled) {
+      stateEl.textContent = t('sync.onDevice', { id: (s.device || '').slice(0, 6) });
+      pathEl.textContent = s.dir;
+      actions.hidden = false;
+      enableBtn.textContent = t('sync.change');
+    } else {
+      stateEl.textContent = t('sync.off');
+      pathEl.textContent = '';
+      actions.hidden = true;
+      enableBtn.textContent = t('sync.enable');
+    }
+  } catch {
+    stateEl.textContent = '';
+    pathEl.textContent = '';
+    actions.hidden = true;
+  }
+}
+
+async function enableSync() {
+  const errEl = document.querySelector('#settings-err');
+  errEl.textContent = '';
+  try {
+    await invoke('sync_enable');
+    await refreshSyncSetting();
+    await renderVault();
+  } catch (e) {
+    errEl.textContent = errText(e);
+  }
+}
+
+async function disableSync() {
+  try {
+    await invoke('sync_disable');
+    await refreshSyncSetting();
+  } catch (e) {
+    document.querySelector('#settings-err').textContent = errText(e);
+  }
+}
+
+async function syncNow() {
+  await withButton(document.querySelector('#sync-now-btn'), t('sync.syncing'), async () => {
+    try {
+      const done = await invoke('sync_now');
+      if (done) {
+        await renderVault();
+      }
+    } catch (e) {
+      document.querySelector('#settings-err').textContent = errText(e);
+    }
+  });
+}
+
+async function autoSync() {
+  await invoke('sync_now').catch(() => {});
+}
+
+async function syncTick() {
+  if (inDecoy) {
+    return;
+  }
+  const editEl = document.querySelector('#detail-edit');
+  if (editEl && !editEl.hidden) {
+    return;
+  }
+  let ran = false;
+  try {
+    ran = await invoke('sync_now');
+  } catch {
+    return;
+  }
+  if (!ran) {
+    return;
+  }
+  const before = JSON.stringify(entries);
+  let fresh = null;
+  try {
+    fresh = await invoke('list_entries');
+  } catch {
+    return;
+  }
+  if (JSON.stringify(fresh) !== before) {
+    entries = fresh;
+    groups = await invoke('list_groups');
+    favGroups = await invoke('list_group_favorites');
+    drawEntries();
+  }
+}
+
 function backupStatus(msg, isError) {
   const el = document.querySelector('#backup-status');
   el.textContent = msg;
@@ -2984,6 +3140,7 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   document.querySelector('#create-btn').addEventListener('click', createVault);
+  document.querySelector('#join-btn').addEventListener('click', joinDevice);
   document.querySelector('#unlock-btn').addEventListener('click', unlockVault);
   document.querySelector('#forgot-link').addEventListener('click', () => openRecoverModal('vault'));
   document.querySelector('#totp-forgot-link').addEventListener('click', () => openRecoverModal('totp'));
@@ -3150,6 +3307,10 @@ window.addEventListener('DOMContentLoaded', () => {
   document.querySelector('#rotate-later').addEventListener('click', rotateLater);
   document.querySelector('#rotate-backdrop').addEventListener('click', rotateLater);
   document.querySelector('#change-location-btn').addEventListener('click', changeVaultLocation);
+  document.querySelector('#sync-enable-btn').addEventListener('click', enableSync);
+  document.querySelector('#sync-now-btn').addEventListener('click', syncNow);
+  document.querySelector('#sync-disable-btn').addEventListener('click', disableSync);
+  setInterval(syncTick, 180000);
   document.querySelector('#export-btn').addEventListener('click', exportVault);
   document.querySelector('#restore-btn').addEventListener('click', restoreVault);
   document.querySelector('#import-csv-btn').addEventListener('click', importCsv);

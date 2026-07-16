@@ -85,6 +85,10 @@ struct Entry {
     fields: Vec<CustomField>,
     #[serde(default)]
     password_modified: i64,
+    #[serde(default)]
+    updated_at: i64,
+    #[serde(default)]
+    deleted: bool,
 }
 
 #[derive(Deserialize)]
@@ -328,6 +332,7 @@ impl VaultState {
             .data
             .entries
             .iter()
+            .filter(|e| !e.deleted)
             .map(|e| EntryMeta {
                 id: e.id.clone(),
                 name: e.name.clone(),
@@ -351,6 +356,7 @@ impl VaultState {
             .data
             .entries
             .iter()
+            .filter(|e| !e.deleted)
             .map(|e| (e.id.clone(), e.name.clone(), Zeroizing::new(e.password.clone())))
             .collect())
     }
@@ -362,7 +368,7 @@ impl VaultState {
             .data
             .entries
             .iter()
-            .find(|e| e.id == id)
+            .find(|e| e.id == id && !e.deleted)
             .map(|e| e.password.clone())
             .ok_or(VaultError::EntryNotFound)
     }
@@ -374,12 +380,13 @@ impl VaultState {
             .data
             .entries
             .iter()
-            .position(|e| e.id == id)
+            .position(|e| e.id == id && !e.deleted)
             .ok_or(VaultError::EntryNotFound)?;
         let previous = unlocked.data.entries[index].clone();
         unlocked.data.entries[index].password = password.to_string();
         unlocked.data.entries[index].modified = now_secs();
         unlocked.data.entries[index].password_modified = now_secs();
+        unlocked.data.entries[index].updated_at = now_secs();
         match save_unlocked(path, unlocked) {
             Ok(()) => Ok(()),
             Err(e) => {
@@ -406,6 +413,8 @@ impl VaultState {
             kind: input.kind,
             fields: input.fields,
             password_modified: now_secs(),
+            updated_at: now_secs(),
+            deleted: false,
         });
         match save_unlocked(path, unlocked) {
             Ok(()) => Ok(id),
@@ -423,7 +432,7 @@ impl VaultState {
             .data
             .entries
             .iter()
-            .position(|e| e.id == id)
+            .position(|e| e.id == id && !e.deleted)
             .ok_or(VaultError::EntryNotFound)?;
         let previous = unlocked.data.entries[index].clone();
         let password_modified = if input.password != previous.password {
@@ -444,6 +453,8 @@ impl VaultState {
             kind: input.kind,
             fields: input.fields,
             password_modified,
+            updated_at: now_secs(),
+            deleted: false,
         };
         match save_unlocked(path, unlocked) {
             Ok(()) => Ok(()),
@@ -466,6 +477,7 @@ impl VaultState {
             .data
             .entries
             .iter()
+            .filter(|e| !e.deleted)
             .filter(|e| !e.password.is_empty())
             .filter(|e| {
                 let ts = if e.password_modified > 0 {
@@ -502,6 +514,8 @@ impl VaultState {
                 kind: inp.kind,
                 fields: inp.fields,
                 password_modified: now_secs(),
+                updated_at: now_secs(),
+                deleted: false,
             });
             count += 1;
         }
@@ -521,14 +535,17 @@ impl VaultState {
             .data
             .entries
             .iter()
-            .position(|e| e.id == id)
+            .position(|e| e.id == id && !e.deleted)
             .ok_or(VaultError::EntryNotFound)?;
+        let previous_updated = unlocked.data.entries[index].updated_at;
         unlocked.data.entries[index].favorite = !unlocked.data.entries[index].favorite;
+        unlocked.data.entries[index].updated_at = now_secs();
         let now = unlocked.data.entries[index].favorite;
         match save_unlocked(path, unlocked) {
             Ok(()) => Ok(now),
             Err(e) => {
                 unlocked.data.entries[index].favorite = !now;
+                unlocked.data.entries[index].updated_at = previous_updated;
                 Err(e)
             }
         }
@@ -541,16 +558,90 @@ impl VaultState {
             .data
             .entries
             .iter()
-            .position(|e| e.id == id)
+            .position(|e| e.id == id && !e.deleted)
             .ok_or(VaultError::EntryNotFound)?;
-        let removed = unlocked.data.entries.remove(index);
+        let previous = unlocked.data.entries[index].clone();
+        {
+            let e = &mut unlocked.data.entries[index];
+            e.name.zeroize();
+            e.username.zeroize();
+            e.password.zeroize();
+            e.url.zeroize();
+            e.note.zeroize();
+            e.group.zeroize();
+            for f in &mut e.fields {
+                f.label.zeroize();
+                f.value.zeroize();
+            }
+            e.fields.clear();
+            e.favorite = false;
+            e.deleted = true;
+            e.updated_at = now_secs();
+        }
         match save_unlocked(path, unlocked) {
             Ok(()) => Ok(()),
-            Err(e) => {
-                unlocked.data.entries.insert(index, removed);
-                Err(e)
+            Err(err) => {
+                unlocked.data.entries[index] = previous;
+                Err(err)
             }
         }
+    }
+
+    pub fn sync_dir(&self, path: &Path, dir: &Path, device_id: &str) -> Result<(), VaultError> {
+        let mut guard = self.inner.lock().map_err(|_| VaultError::Io)?;
+        let unlocked = guard.as_mut().ok_or(VaultError::Locked)?;
+        let my_name = blob_name(device_id);
+        if dir.exists() {
+            let read = fs::read_dir(dir).map_err(|_| VaultError::Io)?;
+            for entry in read.flatten() {
+                let p = entry.path();
+                let fname = p
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or_default()
+                    .to_string();
+                if fname == my_name || !is_blob_name(&fname) {
+                    continue;
+                }
+                if let Ok(bytes) = fs::read(&p) {
+                    if let Ok(remote) = decode_blob(&unlocked.data_key, &bytes) {
+                        unlocked.data = merge(&unlocked.data, &remote);
+                    }
+                }
+            }
+        }
+        purge_tombstones(&mut unlocked.data, now_secs());
+        save_unlocked(path, unlocked)?;
+        write_blob(dir, device_id, &unlocked.data_key, &unlocked.data)?;
+        write_seed(dir, path);
+        Ok(())
+    }
+
+    pub fn folder_belongs_to_other(&self, dir: &Path) -> Result<bool, VaultError> {
+        let guard = self.inner.lock().map_err(|_| VaultError::Io)?;
+        let unlocked = guard.as_ref().ok_or(VaultError::Locked)?;
+        if !dir.exists() {
+            return Ok(false);
+        }
+        let mut saw_blob = false;
+        for entry in fs::read_dir(dir).map_err(|_| VaultError::Io)?.flatten() {
+            let p = entry.path();
+            let fname = p
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_string();
+            if !is_blob_name(&fname) {
+                continue;
+            }
+            saw_blob = true;
+            if let Ok(bytes) = fs::read(&p) {
+                if decode_blob(&unlocked.data_key, &bytes).is_ok() {
+                    return Ok(false);
+                }
+            }
+        }
+        Ok(saw_blob)
     }
 
     pub fn change_level(
@@ -797,9 +888,136 @@ impl VaultState {
     }
 }
 
+fn merge(local: &VaultData, remote: &VaultData) -> VaultData {
+    let mut by_id: HashMap<String, Entry> = HashMap::new();
+    let mut order: Vec<String> = Vec::new();
+    for e in local.entries.iter().chain(remote.entries.iter()) {
+        match by_id.get(&e.id) {
+            None => {
+                order.push(e.id.clone());
+                by_id.insert(e.id.clone(), e.clone());
+            }
+            Some(current) => {
+                if entry_wins(e, current) {
+                    by_id.insert(e.id.clone(), e.clone());
+                }
+            }
+        }
+    }
+    let entries = order.into_iter().filter_map(|id| by_id.remove(&id)).collect();
+
+    let mut groups = local.groups.clone();
+    for g in &remote.groups {
+        if !groups.contains(g) {
+            groups.push(g.clone());
+        }
+    }
+    let mut fav_groups = local.fav_groups.clone();
+    for g in &remote.fav_groups {
+        if !fav_groups.contains(g) {
+            fav_groups.push(g.clone());
+        }
+    }
+    VaultData {
+        entries,
+        groups,
+        fav_groups,
+    }
+}
+
+fn entry_wins(candidate: &Entry, current: &Entry) -> bool {
+    if candidate.updated_at != current.updated_at {
+        return candidate.updated_at > current.updated_at;
+    }
+    if candidate.deleted != current.deleted {
+        return candidate.deleted;
+    }
+    entry_sig(candidate) > entry_sig(current)
+}
+
+fn entry_sig(e: &Entry) -> String {
+    serde_json::to_string(e).unwrap_or_default()
+}
+
+fn purge_tombstones(data: &mut VaultData, now: i64) {
+    let cutoff = 90 * 86400;
+    data.entries
+        .retain(|e| !(e.deleted && now.saturating_sub(e.updated_at) > cutoff));
+}
+
+pub const SEED_NAME: &str = "sync.seed";
+
+fn blob_name(device_id: &str) -> String {
+    format!("sync-{device_id}.dat")
+}
+
+fn is_blob_name(name: &str) -> bool {
+    name.starts_with("sync-") && name.ends_with(".dat")
+}
+
+#[derive(Serialize, Deserialize)]
+struct SyncBlob {
+    device: String,
+    nonce: String,
+    ct: String,
+}
+
+fn write_blob(
+    dir: &Path,
+    device_id: &str,
+    data_key: &[u8; crypto::KEY_LEN],
+    data: &VaultData,
+) -> Result<(), VaultError> {
+    let plaintext = Zeroizing::new(serde_json::to_vec(data).map_err(|_| VaultError::Io)?);
+    let (nonce, ct) = crypto::encrypt(data_key, &plaintext).map_err(|_| VaultError::Crypto)?;
+    let blob = SyncBlob {
+        device: device_id.to_string(),
+        nonce: STANDARD.encode(nonce),
+        ct: STANDARD.encode(ct),
+    };
+    let json = serde_json::to_vec(&blob).map_err(|_| VaultError::Io)?;
+    fs::create_dir_all(dir).map_err(|_| VaultError::Io)?;
+    let target = dir.join(blob_name(device_id));
+    let tmp = dir.join(format!("{}.tmp", blob_name(device_id)));
+    fs::write(&tmp, &json).map_err(|_| VaultError::Io)?;
+    fs::rename(&tmp, &target).map_err(|_| VaultError::Io)?;
+    Ok(())
+}
+
+fn decode_blob(data_key: &[u8; crypto::KEY_LEN], bytes: &[u8]) -> Result<VaultData, VaultError> {
+    let blob: SyncBlob = serde_json::from_slice(bytes).map_err(|_| VaultError::Corrupt)?;
+    let nonce = STANDARD.decode(&blob.nonce).map_err(|_| VaultError::Corrupt)?;
+    let ct = STANDARD.decode(&blob.ct).map_err(|_| VaultError::Corrupt)?;
+    let plaintext = crypto::decrypt(data_key, &nonce, &ct).map_err(|_| VaultError::Crypto)?;
+    let data: VaultData = serde_json::from_slice(&plaintext).map_err(|_| VaultError::Corrupt)?;
+    Ok(data)
+}
+
+fn write_seed(dir: &Path, vault_file: &Path) {
+    if dir.join(SEED_NAME).exists() {
+        return;
+    }
+    let _ = refresh_seed(dir, vault_file);
+}
+
+pub fn refresh_seed(dir: &Path, vault_file: &Path) -> Result<(), VaultError> {
+    let bytes = fs::read(vault_file).map_err(|_| VaultError::Io)?;
+    fs::create_dir_all(dir).map_err(|_| VaultError::Io)?;
+    let tmp = dir.join("sync.seed.tmp");
+    fs::write(&tmp, &bytes).map_err(|_| VaultError::Io)?;
+    fs::rename(&tmp, dir.join(SEED_NAME)).map_err(|_| VaultError::Io)?;
+    Ok(())
+}
+
 fn new_id() -> Result<String, VaultError> {
     let bytes = crypto::generate_id_bytes().map_err(|_| VaultError::Crypto)?;
     Ok(URL_SAFE_NO_PAD.encode(bytes))
+}
+
+pub fn generate_device_id() -> String {
+    crypto::generate_id_bytes()
+        .map(|b| URL_SAFE_NO_PAD.encode(b))
+        .unwrap_or_default()
 }
 
 fn now_secs() -> i64 {
@@ -1490,6 +1708,8 @@ mod tests {
             kind: String::new(),
             fields: Vec::new(),
             password_modified: 0,
+            updated_at: 0,
+            deleted: false,
         });
         write_v1(&path, b"mot de passe v1", &data);
 
@@ -1656,5 +1876,258 @@ mod tests {
         ));
         state.unlock(&path, b"maitre").unwrap();
         let _ = fs::remove_file(&path);
+    }
+
+    fn ent(id: &str, name: &str, updated_at: i64, deleted: bool) -> Entry {
+        Entry {
+            id: id.to_string(),
+            name: name.to_string(),
+            username: String::new(),
+            password: String::new(),
+            url: String::new(),
+            note: String::new(),
+            group: String::new(),
+            modified: 0,
+            favorite: false,
+            kind: String::new(),
+            fields: Vec::new(),
+            password_modified: 0,
+            updated_at,
+            deleted,
+        }
+    }
+
+    fn vd(entries: Vec<Entry>) -> VaultData {
+        VaultData {
+            entries,
+            groups: Vec::new(),
+            fav_groups: Vec::new(),
+        }
+    }
+
+    fn content_set(d: &VaultData) -> Vec<String> {
+        let mut v: Vec<String> = d.entries.iter().map(entry_sig).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn merge_takes_the_newer_entry() {
+        let local = vd(vec![ent("x", "ancien", 100, false)]);
+        let remote = vd(vec![ent("x", "nouveau", 200, false)]);
+        let m = merge(&local, &remote);
+        assert_eq!(m.entries.len(), 1);
+        assert_eq!(m.entries[0].name, "nouveau");
+    }
+
+    #[test]
+    fn merge_tombstone_beats_older_edit() {
+        let local = vd(vec![ent("x", "edite", 100, false)]);
+        let remote = vd(vec![ent("x", "edite", 120, true)]);
+        let m = merge(&local, &remote);
+        assert_eq!(m.entries.len(), 1);
+        assert!(m.entries[0].deleted);
+    }
+
+    #[test]
+    fn merge_edit_beats_older_tombstone() {
+        let local = vd(vec![ent("x", "supprime", 90, true)]);
+        let remote = vd(vec![ent("x", "ressuscite", 100, false)]);
+        let m = merge(&local, &remote);
+        assert_eq!(m.entries.len(), 1);
+        assert!(!m.entries[0].deleted);
+        assert_eq!(m.entries[0].name, "ressuscite");
+    }
+
+    #[test]
+    fn merge_unions_disjoint_entries() {
+        let local = vd(vec![ent("a", "A", 10, false)]);
+        let remote = vd(vec![ent("b", "B", 10, false)]);
+        let m = merge(&local, &remote);
+        assert_eq!(m.entries.len(), 2);
+        let ids: Vec<&str> = m.entries.iter().map(|e| e.id.as_str()).collect();
+        assert!(ids.contains(&"a"));
+        assert!(ids.contains(&"b"));
+    }
+
+    #[test]
+    fn merge_is_idempotent() {
+        let a = vd(vec![ent("x", "n", 100, false), ent("y", "m", 50, true)]);
+        assert_eq!(content_set(&merge(&a, &a)), content_set(&a));
+    }
+
+    #[test]
+    fn merge_is_commutative() {
+        let a = vd(vec![ent("x", "ancien", 100, false), ent("z", "za", 10, false)]);
+        let b = vd(vec![ent("x", "nouveau", 200, false), ent("y", "yb", 20, true)]);
+        assert_eq!(content_set(&merge(&a, &b)), content_set(&merge(&b, &a)));
+    }
+
+    #[test]
+    fn merge_converges_on_both_devices() {
+        let a = vd(vec![ent("x", "A1", 100, false), ent("s", "solo-a", 5, false)]);
+        let b = vd(vec![ent("x", "B1", 90, false), ent("t", "solo-b", 7, true)]);
+        let device_a = merge(&a, &b);
+        let device_b = merge(&b, &a);
+        assert_eq!(content_set(&device_a), content_set(&device_b));
+        let x = device_a.entries.iter().find(|e| e.id == "x").unwrap();
+        assert_eq!(x.name, "A1");
+    }
+
+    #[test]
+    fn merge_tie_is_deterministic() {
+        let a = vd(vec![ent("x", "aaa", 100, false)]);
+        let b = vd(vec![ent("x", "bbb", 100, false)]);
+        assert_eq!(merge(&a, &b).entries[0].name, merge(&b, &a).entries[0].name);
+    }
+
+    #[test]
+    fn merge_unions_groups() {
+        let mut a = vd(vec![]);
+        a.groups = vec!["Perso".to_string()];
+        a.fav_groups = vec!["Perso".to_string()];
+        let mut b = vd(vec![]);
+        b.groups = vec!["Boulot".to_string()];
+        let m = merge(&a, &b);
+        assert!(m.groups.contains(&"Perso".to_string()));
+        assert!(m.groups.contains(&"Boulot".to_string()));
+        assert!(m.fav_groups.contains(&"Perso".to_string()));
+    }
+
+    fn temp_dir_path() -> std::path::PathBuf {
+        let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let mut dir = std::env::temp_dir();
+        dir.push(format!("gestio_sync_{}_{}", std::process::id(), n));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn shared_pair() -> (VaultState, std::path::PathBuf, VaultState, std::path::PathBuf) {
+        let pa = temp_vault_path();
+        let a = VaultState::default();
+        a.create(&pa, b"mot de passe partage", "normal", false).unwrap();
+        let pb = temp_vault_path();
+        fs::copy(&pa, &pb).unwrap();
+        let b = VaultState::default();
+        b.unlock(&pb, b"mot de passe partage").unwrap();
+        (a, pa, b, pb)
+    }
+
+    #[test]
+    fn tombstone_purged_after_retention() {
+        let now = 1_000_000_000i64;
+        let mut d = vd(vec![
+            ent("keep", "k", now, false),
+            ent("old", "", now - 91 * 86400, true),
+            ent("recent", "", now - 10, true),
+        ]);
+        purge_tombstones(&mut d, now);
+        let ids: Vec<&str> = d.entries.iter().map(|e| e.id.as_str()).collect();
+        assert!(ids.contains(&"keep"));
+        assert!(ids.contains(&"recent"));
+        assert!(!ids.contains(&"old"));
+    }
+
+    #[test]
+    fn blob_roundtrip_encrypts_and_decrypts() {
+        let dir = temp_dir_path();
+        let key = crypto::generate_key_bytes().unwrap();
+        let data = vd(vec![ent("x", "GitHub", 5, false)]);
+        write_blob(&dir, "A", &key, &data).unwrap();
+        let bytes = fs::read(dir.join(blob_name("A"))).unwrap();
+        let back = decode_blob(&key, &bytes).unwrap();
+        assert_eq!(back.entries.len(), 1);
+        assert_eq!(back.entries[0].name, "GitHub");
+        let wrong = crypto::generate_key_bytes().unwrap();
+        assert!(decode_blob(&wrong, &bytes).is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn delete_leaves_cleared_tombstone() {
+        let path = temp_vault_path();
+        let state = VaultState::default();
+        state.create(&path, b"maitre", "normal", false).unwrap();
+        let id = state.add_entry(&path, input("Secret", "user", "TOPSECRET")).unwrap();
+        state.delete_entry(&path, &id).unwrap();
+        assert!(state.list_entries().unwrap().is_empty());
+        assert!(matches!(
+            state.reveal_password(&id).unwrap_err(),
+            VaultError::EntryNotFound
+        ));
+        {
+            let guard = state.inner.lock().unwrap();
+            let u = guard.as_ref().unwrap();
+            let e = u.data.entries.iter().find(|e| e.id == id).unwrap();
+            assert!(e.deleted);
+            assert!(e.password.is_empty());
+            assert!(e.name.is_empty());
+        }
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn sync_converges_two_devices() {
+        let dir = temp_dir_path();
+        let (a, pa, b, pb) = shared_pair();
+        a.add_entry(&pa, input("GitHub", "u", "pa")).unwrap();
+        b.add_entry(&pb, input("Steam", "u", "pb")).unwrap();
+        a.sync_dir(&pa, &dir, "A").unwrap();
+        b.sync_dir(&pb, &dir, "B").unwrap();
+        a.sync_dir(&pa, &dir, "A").unwrap();
+        let na = a.list_entries().unwrap();
+        let nb = b.list_entries().unwrap();
+        assert_eq!(na.len(), 2);
+        assert_eq!(nb.len(), 2);
+        let names: Vec<&str> = na.iter().map(|e| e.name.as_str()).collect();
+        assert!(names.contains(&"GitHub"));
+        assert!(names.contains(&"Steam"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_propagates_deletion() {
+        let dir = temp_dir_path();
+        let (a, pa, b, pb) = shared_pair();
+        let id = a.add_entry(&pa, input("Compte", "u", "p")).unwrap();
+        a.sync_dir(&pa, &dir, "A").unwrap();
+        b.sync_dir(&pb, &dir, "B").unwrap();
+        assert_eq!(b.list_entries().unwrap().len(), 1);
+        b.delete_entry(&pb, &id).unwrap();
+        b.sync_dir(&pb, &dir, "B").unwrap();
+        a.sync_dir(&pa, &dir, "A").unwrap();
+        assert!(a.list_entries().unwrap().is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_ignores_foreign_blob() {
+        let dir = temp_dir_path();
+        let (a, pa, _b, _pb) = shared_pair();
+        a.add_entry(&pa, input("Mien", "u", "p")).unwrap();
+        let foreign_key = crypto::generate_key_bytes().unwrap();
+        let foreign = vd(vec![ent("z", "Etranger", 9, false)]);
+        write_blob(&dir, "Z", &foreign_key, &foreign).unwrap();
+        a.sync_dir(&pa, &dir, "A").unwrap();
+        let list = a.list_entries().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].name, "Mien");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn folder_foreign_detection() {
+        let dir = temp_dir_path();
+        let pa = temp_vault_path();
+        let a = VaultState::default();
+        a.create(&pa, b"mot de passe A long", "normal", false).unwrap();
+        a.add_entry(&pa, input("X", "u", "p")).unwrap();
+        a.sync_dir(&pa, &dir, "A").unwrap();
+        assert!(!a.folder_belongs_to_other(&dir).unwrap());
+        let pb = temp_vault_path();
+        let b = VaultState::default();
+        b.create(&pb, b"mot de passe B different", "normal", false).unwrap();
+        assert!(b.folder_belongs_to_other(&dir).unwrap());
+        let _ = fs::remove_dir_all(&dir);
     }
 }

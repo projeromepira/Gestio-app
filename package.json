@@ -1,6 +1,6 @@
 {
   "name": "gestio",
-  "version": "0.58.3",
+  "version": "0.58.11",
   "private": true,
   "license": "GPL-3.0-only",
   "type": "module",

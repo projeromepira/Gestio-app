@@ -8,6 +8,10 @@ struct Config {
     autostart_initialized: bool,
     #[serde(default)]
     discreet: bool,
+    #[serde(default)]
+    sync_dir: Option<String>,
+    #[serde(default)]
+    device_id: Option<String>,
 }
 
 fn load(config_file: &Path) -> Config {
@@ -56,4 +60,24 @@ pub fn mark_autostart_initialized(config_file: &Path) -> Result<(), ()> {
     let mut config = load(config_file);
     config.autostart_initialized = true;
     save(config_file, &config)
+}
+
+pub fn sync_dir(config_file: &Path) -> Option<String> {
+    load(config_file).sync_dir
+}
+
+pub fn set_sync_dir(config_file: &Path, dir: Option<&Path>) -> Result<(), ()> {
+    let mut config = load(config_file);
+    config.sync_dir = dir.map(|p| p.to_string_lossy().into_owned());
+    save(config_file, &config)
+}
+
+pub fn device_id_or(config_file: &Path, candidate: &str) -> String {
+    let mut config = load(config_file);
+    if let Some(id) = config.device_id {
+        return id;
+    }
+    config.device_id = Some(candidate.to_string());
+    let _ = save(config_file, &config);
+    candidate.to_string()
 }
